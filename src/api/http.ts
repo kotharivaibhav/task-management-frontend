@@ -5,48 +5,45 @@ function buildUrl(path: string) {
   return `${API_BASE_URL}/${normalizedPath}`
 }
 
-type ApiRequestInit = {
+type RequestOptions = {
   method?: string
   headers?: Record<string, string>
   body?: unknown
+  token?: string | null
 }
 
-type ApiErrorResponse = {
-  message?: string
-}
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', headers = {}, body, token } = options
 
-export async function apiRequest<T = unknown>(path: string, options: ApiRequestInit = {}) {
-  const url = buildUrl(path)
-  const { method = 'GET', headers = {}, body } = options
-
-  const init: RequestInit = {
-    method,
-    headers: {
-      ...headers,
-      ...(body != null && !(body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
-    },
+  const requestHeaders: Record<string, string> = { ...headers }
+  if (token) {
+    requestHeaders.Authorization = `Bearer ${token}`
   }
 
-  if (body != null) {
-    init.body = body instanceof FormData ? body : JSON.stringify(body)
+  const init: RequestInit = { method, headers: requestHeaders }
+
+  if (body !== undefined) {
+    if (body instanceof FormData) {
+      init.body = body
+    } else {
+      requestHeaders['Content-Type'] = 'application/json'
+      init.body = JSON.stringify(body)
+    }
   }
 
   let response: Response
-
   try {
-    response = await fetch(url, init)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Network error: ${message}`)
+    response = await fetch(buildUrl(path), init)
+  } catch {
+    throw new Error('Network error: unable to reach the server')
   }
 
   const text = await response.text()
-  const data = text ? JSON.parse(text) : null
+  const payload = text ? JSON.parse(text) : {}
 
   if (!response.ok) {
-    const serverMessage = (data as ApiErrorResponse)?.message
-    throw new Error(serverMessage ?? response.statusText ?? 'Request failed')
+    throw new Error(payload.message || payload.error || response.statusText || 'Request failed')
   }
 
-  return data as T
+  return payload as T
 }
